@@ -1,6 +1,8 @@
 import argparse
 import pyopencl as cl
+import pyopencl.tools
 import csv
+import numpy
 from time import time
 from array import array
 
@@ -8,11 +10,27 @@ class Main:
   def __init__(self, options):
     self.options = options
     self.result = []
-    self.dicRawData = {} # { idx : row}
+    self.dicRawData = {} # { idx : row }
+    self.dicDatetime2Idx = {} # { Date+Time : idx }, Date+Time is unique string
+
+    self.stRawData = numpy.dtype([('f1', numpy.int), \
+                                  ('f2', numpy.float), \
+                                  ('f3', numpy.float), \
+                                  ('f4', numpy.float), \
+                                  ('f5', numpy.float)])
 
   def prepare(self, program):
     self.context = cl.create_some_context()
     self.queue = cl.CommandQueue(self.context)
+
+    # TODO : Should use the device you choose.
+    self.stRawData, stRawData_c_decl = cl.tools.match_dtype_to_c_struct(self.context.devices[0], \
+      "stRawData", self.stRawData)
+    self.stRawData = cl.tools.get_or_register_dtype("stRawData", self.stRawData)
+    print "self.stRawData : ", self.stRawData
+    print "stRawData_c_decl : ", stRawData_c_decl
+
+    return self.loadProgram(program)
 
   def loadProgram(self, program):
     f = open(program, 'r')
@@ -24,9 +42,12 @@ class Main:
     ## ?? convert to a better style?
     f = open(rawFile, 'r')
     csvData = csv.DictReader(f)
+    self.dicRawData = {}
+    self.dicDatetime2Idx = {}
     for idx, row in enumerate(csvData):
-      print '{} {} {} {} {} {}'.format(row['Date'], row['Time'], row['Open'], row['High'], row['Low'], row['Close'])
-      self.dicRawData.setdefault(idx, row)
+      #print '{} {} {} {} {} {}'.format(row['Date'], row['Time'], row['Open'], row['High'], row['Low'], row['Close'])
+      self.dicRawData[idx] = row
+      self.dicDatetime2Idx[row['Date']+row['Time']] = idx
     print "Number of Row : %d " %(len(self.dicRawData))
     f.close()
 
@@ -66,8 +87,54 @@ class Main:
 
     print dicTempResult
 
+  def prepareInBufferForOCL(self, sIdx, eIdx):
+    # TODO : create input buffer only start from sIdx-Base ~ eIdx for calculation input
+    if not self.dicRawData or not self.dicDatetime2Idx: return
+
+    lstRawData = [(k, float(v['Open']), float(v['High']), float(v['Low']), float(v['Close'])) for k, v in self.dicRawData.iteritems() ]
+    arrInRawData = numpy.array(lstRawData, dtype=self.stRawData)
+    print "arrInRawData : ", arrInRawData
+    print "arrInRawData.shape : ", arrInRawData .shape
+
+    # Use cl.Buffer
+    #bufInRaw = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | \
+    #  cl.mem_flags.USE_HOST_PTR, hostbuf=arrInRawData)
+
+    # Use cl.array
+    arrayIn = cl.array.to_device(self.queue, arrInRawData)
+    return arrayIn
+
+  def prepareOutBufferForOCL(self, sIdx, eIdx):
+    # TODO : create output buffer with a size (eIdx-sIdx+1) for storeing result
+    if not self.dicRawData or not self.dicDatetime2Idx: return
+
+    arrOutRawData = numpy.zeros(len(self.dicRawData), dtype=self.stRawData)
+    print "arrOutRawData : ", arrOutRawData
+    print "arrOutRawData.shape : ", arrOutRawData .shape
+
+    # Use cl.Buffer 
+    #bufOutRaw = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY | \
+    #  cl.mem_flags.USE_HOST_PTR, hostbuf=arrOutRawData)
+    #return bufOutRaw
+
+    # Use cl.array
+    arrayOut = cl.array.to_device(self.queue, arrOutRawData)
+    return arrayOut
+
   def run(self):
     program = self.prepare('ma.c')
+
+    inBuff = self.prepareInBufferForOCL(2, 5)
+    outBuff = self.prepareOutBufferForOCL(2, 5)
+
+    globalSize = ((len(self.dicRawData) + 15) << 4) >> 4
+
+    evt = program.test_donothing(self.queue, (len(self.dicRawData),), None, \
+        inBuff.data, outBuff.data)
+
+    # TODO : Using cl.array, we don't need to use cl.enqueu_read_buffer
+    print outBuff
+
     ##?? load csv
 
     ## create buffer for input
@@ -90,8 +157,9 @@ if __name__ == '__main__':
   m = Main(args)
 
   rawData = m.loadData(args.input)
-  m.calcualteAVG(int(args.sidx), int(args.eidx), int(args.base))
-  # result = m.run()
+
+  #m.calcualteAVG(int(args.sidx), int(args.eidx), int(args.base))
+  result = m.run()
 
   # print '=' * 40
   # print 'MA Result:'
