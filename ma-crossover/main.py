@@ -3,7 +3,7 @@ import pyopencl as cl
 import pyopencl.tools
 import csv
 import numpy
-from time import time
+import time
 from array import array
 
 class Main:
@@ -27,8 +27,8 @@ class Main:
     self.stRawData, stRawData_c_decl = cl.tools.match_dtype_to_c_struct(self.context.devices[0], \
       "stRawData", self.stRawData)
     self.stRawData = cl.tools.get_or_register_dtype("stRawData", self.stRawData)
-    print "self.stRawData : ", self.stRawData
-    print "stRawData_c_decl : ", stRawData_c_decl
+    #print "self.stRawData : ", self.stRawData
+    #print "stRawData_c_decl : ", stRawData_c_decl
 
     return self.loadProgram(program)
 
@@ -59,9 +59,10 @@ class Main:
     if endIdx >= len(self.dicRawData):
       endIdx = len(self.dicRawData) - 1
 
+    nCount = endIdx+1 - startIdx
     dicTempResult = {}
     for index in xrange(startIdx, endIdx+1):
-      print "index : %d" %(index)
+      #print "index : %d" %(index)
 
       lstIndice = [index-i for i in xrange(calcBase) if index-i >= 0]
       for idx in lstIndice:
@@ -69,7 +70,7 @@ class Main:
         vHigh = float(self.dicRawData[idx].get('High', 0.0))
         vLow = float(self.dicRawData[idx].get('Low', 0.0))
         vClose = float(self.dicRawData[idx].get('Close', 0.0))
-        print " idx : %d - open(%f)/high(%f)/low(%f)/close(%f)" %(idx, vOpen, vHigh, vLow, vClose)
+        #print " idx : %d - open(%f)/high(%f)/low(%f)/close(%f)" %(idx, vOpen, vHigh, vLow, vClose)
         dicTempResult[index]['O'] = dicTempResult.setdefault(index, {}).setdefault('O', 0.0) + vOpen
         dicTempResult[index]['H'] = dicTempResult.setdefault(index, {}).setdefault('H', 0.0) + vHigh
         dicTempResult[index]['L'] = dicTempResult.setdefault(index, {}).setdefault('L', 0.0) + vLow
@@ -79,13 +80,14 @@ class Main:
       dicTempResult[index]['H'] /= float(len(lstIndice))
       dicTempResult[index]['L'] /= float(len(lstIndice))
       dicTempResult[index]['C'] /= float(len(lstIndice))
-      print " AVG Open : %f " %(dicTempResult[index]['O'])
-      print " AVG High : %f " %(dicTempResult[index]['H'])
-      print " AVG Low : %f " %(dicTempResult[index]['L'])
-      print " AVG Close : %f " %(dicTempResult[index]['C'])
-      print "=" * 20
 
-    print dicTempResult
+      if (index < 4 or index + 4 > nCount):
+        print " AVG Open(%6f)/High(%6f)/Low(%6f)/Close(%6f) " %(dicTempResult[index]['O'], dicTempResult[index]['H'], \
+          dicTempResult[index]['L'], dicTempResult[index]['C'])
+      elif (4 <= index < 6):
+        print "..."
+
+    print "=" * 10 + "Done" + "=" * 10
 
   def prepareInBufferForOCL(self, sIdx, eIdx):
     # TODO : create input buffer only start from sIdx-Base ~ eIdx for calculation input
@@ -128,9 +130,10 @@ class Main:
     outBuff = self.prepareOutBufferForOCL(2, 5)
 
     globalSize = ((len(self.dicRawData) + 15) << 4) >> 4
+    nCalculateRange = 5 # Take 5 as exampel
 
     evt = program.test_donothing(self.queue, (len(self.dicRawData),), None, \
-        inBuff.data, outBuff.data)
+        numpy.int32(nCalculateRange), inBuff.data, outBuff.data)
 
     # TODO : Using cl.array, we don't need to use cl.enqueu_read_buffer
     print outBuff
@@ -156,10 +159,19 @@ if __name__ == '__main__':
   args = parser.parse_args()
   m = Main(args)
 
+  time1 = time.time()
   rawData = m.loadData(args.input)
+  print " Data preparation takes : %f sec."%(time.time()-time1)
+  print "=" * 20
 
-  #m.calcualteAVG(int(args.sidx), int(args.eidx), int(args.base))
+  time2 = time.time()
+  m.calcualteAVG(0, len(m.dicRawData), 5)  # int(args.sidx), int(args.eidx), int(args.base)
+  time3 = time.time()
+  print " CPU takes : %f sec."%(time3-time2)
+  print "=" * 20
   result = m.run()
+  print " GPU takes : %f sec."%(time.time()-time3)
+  print "=" * 20
 
   # print '=' * 40
   # print 'MA Result:'
