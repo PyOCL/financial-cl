@@ -6,6 +6,51 @@ import numpy
 import time
 from array import array
 
+SIGNAL_BUY          = "Signal to buy"
+SIGNAL_SELL         = "Signal to sell"
+SIGNAL_BUY_OPP      = "A buying opportunity"
+SIGNAL_SELL_OPP     = "A selling opportunity"
+SIGNAL_TIME_TO_BUY  = "Buy for short-term technical rise"
+SIGNAL_TIME_TO_SELL = "Sell for short-term technical reaction"
+
+TREND_TYPE_DECLINE_FLATTERN  = 0
+TREND_TYPE_DECLINE_FALL      = 1
+TREND_TYPE_RISING_FLATTERN   = 2
+TREND_TYPE_RISING_ADVANCE    = 3
+
+class GranvilleRules:
+  # http://www.angelfire.com/sk/mtsp500/granville.html
+  # http://www.cnyes.com/twstock/class/Chap4_02.htm
+  GRANULARITY = 5
+  def __init__(self, lstMA200, lstK):
+    # Pass in at least 5 most recent values to calculate the trend
+    # Start from the least recent, e.g. lstMA200 = [100, 101, 102, 104, 105]
+    # 105 : today, 104 : yesterday, 102 : the day before yesterday ... etc.
+    assert(len(lstMA200) == GranvilleRules.GRANULARITY)
+    assert(len(lstK) == GranvilleRules.GRANULARITY)
+    self.strConclusion = 'Nothing'
+
+    self.nTrendForMA200 = None
+    self.nTrendForPrice = None
+
+    self.nTrendForMA200 = self.calcTrend(lstMA200)
+    self.nTrendForPrice = self.calcTrend(lstK)
+    pass
+
+  def calcTrend(self, lstInput):
+    # TODO : is it suitable to calculate trend by slope ?
+    #        or use least square method to find a line ?
+    for i in xrange(len(lstInput)-1):
+      slope = float(lstInput[i+1]-lstInput[i]) / float((i+1)-i)
+      print slope
+    return None
+
+  def analyze(self):
+    pass
+
+  def output(self):
+    pass
+
 class Main:
   def __init__(self, options):
     self.options = options
@@ -14,10 +59,11 @@ class Main:
     self.dicDatetime2Idx = {} # { Date+Time : idx }, Date+Time is unique string
 
     self.stRawData = numpy.dtype([('f1', numpy.int), \
-                                  ('f2', numpy.float), \
-                                  ('f3', numpy.float), \
-                                  ('f4', numpy.float), \
-                                  ('f5', numpy.float)])
+                                  ('f2', numpy.float32), \
+                                  ('f3', numpy.float32), \
+                                  ('f4', numpy.float32), \
+                                  ('f5', numpy.float32)])
+
 
   def prepare(self, program):
     self.context = cl.create_some_context()
@@ -84,7 +130,7 @@ class Main:
       if (index < 4 or index + 4 > nCount):
         print " AVG Open(%6f)/High(%6f)/Low(%6f)/Close(%6f) " %(dicTempResult[index]['O'], dicTempResult[index]['H'], \
           dicTempResult[index]['L'], dicTempResult[index]['C'])
-      elif (4 <= index < 6):
+      elif (4 <= index <= 6):
         print "..."
 
     print "=" * 10 + "Done" + "=" * 10
@@ -130,7 +176,7 @@ class Main:
     outBuff = self.prepareOutBufferForOCL(2, 5)
 
     globalSize = ((len(self.dicRawData) + 15) << 4) >> 4
-    nCalculateRange = 5 # Take 5 as exampel
+    nCalculateRange = 200 # Take 5 as exampel
 
     evt = program.test_donothing(self.queue, (len(self.dicRawData),), None, \
         numpy.int32(nCalculateRange), inBuff.data, outBuff.data)
@@ -165,7 +211,7 @@ if __name__ == '__main__':
   print "=" * 20
 
   time2 = time.time()
-  m.calcualteAVG(0, len(m.dicRawData), 5)  # int(args.sidx), int(args.eidx), int(args.base)
+  m.calcualteAVG(0, len(m.dicRawData), 200)  # int(args.sidx), int(args.eidx), int(args.base)
   time3 = time.time()
   print " CPU takes : %f sec."%(time3-time2)
   print "=" * 20
