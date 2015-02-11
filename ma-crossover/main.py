@@ -58,11 +58,11 @@ class Main:
     self.dicRawData = {} # { idx : row }
     self.dicDatetime2Idx = {} # { Date+Time : idx }, Date+Time is unique string
 
-    self.stRawData = numpy.dtype([('f1', numpy.int), \
-                                  ('f2', numpy.float32), \
-                                  ('f3', numpy.float32), \
-                                  ('f4', numpy.float32), \
-                                  ('f5', numpy.float32)])
+    self.PriceData = numpy.dtype([('dataIndex', numpy.int), \
+                                  ('open', numpy.float32), \
+                                  ('high', numpy.float32), \
+                                  ('low', numpy.float32), \
+                                  ('close', numpy.float32)])
 
 
   def prepare(self, program):
@@ -70,11 +70,11 @@ class Main:
     self.queue = cl.CommandQueue(self.context)
 
     # TODO : Should use the device you choose.
-    self.stRawData, stRawData_c_decl = cl.tools.match_dtype_to_c_struct(self.context.devices[0], \
-      "stRawData", self.stRawData)
-    self.stRawData = cl.tools.get_or_register_dtype("stRawData", self.stRawData)
-    #print "self.stRawData : ", self.stRawData
-    #print "stRawData_c_decl : ", stRawData_c_decl
+    self.PriceData, PriceData_c_decl = cl.tools.match_dtype_to_c_struct(
+                                                        self.context.devices[0],
+                                                        "PriceData",
+                                                        self.PriceData)
+    self.PriceData = cl.tools.get_or_register_dtype("PriceData", self.PriceData)
 
     return self.loadProgram(program)
 
@@ -82,7 +82,7 @@ class Main:
     f = open(program, 'r')
     fstr = ''.join(f.readlines())
     f.close()
-    return cl.Program(self.context, fstr).build()
+    return cl.Program(self.context, fstr).build(['-I kernel/'])
 
   def loadData(self, rawFile):
     ## ?? convert to a better style?
@@ -91,7 +91,6 @@ class Main:
     self.dicRawData = {}
     self.dicDatetime2Idx = {}
     for idx, row in enumerate(csvData):
-      #print '{} {} {} {} {} {}'.format(row['Date'], row['Time'], row['Open'], row['High'], row['Low'], row['Close'])
       self.dicRawData[idx] = row
       self.dicDatetime2Idx[row['Date']+row['Time']] = idx
     print "Number of Row : %d " %(len(self.dicRawData))
@@ -106,29 +105,32 @@ class Main:
       endIdx = len(self.dicRawData) - 1
 
     nCount = endIdx+1 - startIdx
+    print "=" * 10 + "Result in Descending Order" + "=" * 10
     dicTempResult = {}
-    for index in xrange(startIdx, endIdx+1):
-      #print "index : %d" %(index)
+    # The startIdx is the inlcuded value. But the second parameter of range is
+    # excluded value. So, we use -2 to calculate the stop index of range.
+    # The perfect stop index is startIdx + calcBase - 2. But we use startIdx - 1
+    # to have the same result of Open CL
+    for index in range(endIdx, startIdx - 1, -1):
+      dicTempResult[index] = {}
+      dicTempResult[index]['O'] = 0
+      dicTempResult[index]['H'] = 0
+      dicTempResult[index]['L'] = 0
+      dicTempResult[index]['C'] = 0
+      if index >= calcBase:
+        for idx in range(calcBase):
+          dicTempResult[index]['O'] += float(self.dicRawData[index - idx].get('Open', 0.0))
+          dicTempResult[index]['H'] += float(self.dicRawData[index - idx].get('High', 0.0))
+          dicTempResult[index]['L'] += float(self.dicRawData[index - idx].get('Low', 0.0))
+          dicTempResult[index]['C'] += float(self.dicRawData[index - idx].get('Close', 0.0))
 
-      lstIndice = [index-i for i in xrange(calcBase) if index-i >= 0]
-      for idx in lstIndice:
-        vOpen = float(self.dicRawData[idx].get('Open', 0.0))
-        vHigh = float(self.dicRawData[idx].get('High', 0.0))
-        vLow = float(self.dicRawData[idx].get('Low', 0.0))
-        vClose = float(self.dicRawData[idx].get('Close', 0.0))
-        #print " idx : %d - open(%f)/high(%f)/low(%f)/close(%f)" %(idx, vOpen, vHigh, vLow, vClose)
-        dicTempResult[index]['O'] = dicTempResult.setdefault(index, {}).setdefault('O', 0.0) + vOpen
-        dicTempResult[index]['H'] = dicTempResult.setdefault(index, {}).setdefault('H', 0.0) + vHigh
-        dicTempResult[index]['L'] = dicTempResult.setdefault(index, {}).setdefault('L', 0.0) + vLow
-        dicTempResult[index]['C'] = dicTempResult.setdefault(index, {}).setdefault('C', 0.0) + vClose
-
-      dicTempResult[index]['O'] /= float(len(lstIndice))
-      dicTempResult[index]['H'] /= float(len(lstIndice))
-      dicTempResult[index]['L'] /= float(len(lstIndice))
-      dicTempResult[index]['C'] /= float(len(lstIndice))
+        dicTempResult[index]['O'] /= float(calcBase)
+        dicTempResult[index]['H'] /= float(calcBase)
+        dicTempResult[index]['L'] /= float(calcBase)
+        dicTempResult[index]['C'] /= float(calcBase)
 
       if (index < 4 or index + 4 > nCount):
-        print " AVG Open(%6f)/High(%6f)/Low(%6f)/Close(%6f) " %(dicTempResult[index]['O'], dicTempResult[index]['H'], \
+        print "%d: AVG Open(%6f)/High(%6f)/Low(%6f)/Close(%6f) " % (index, dicTempResult[index]['O'], dicTempResult[index]['H'], \
           dicTempResult[index]['L'], dicTempResult[index]['C'])
       elif (4 <= index <= 6):
         print "..."
@@ -140,7 +142,7 @@ class Main:
     if not self.dicRawData or not self.dicDatetime2Idx: return
 
     lstRawData = [(k, float(v['Open']), float(v['High']), float(v['Low']), float(v['Close'])) for k, v in self.dicRawData.iteritems() ]
-    arrInRawData = numpy.array(lstRawData, dtype=self.stRawData)
+    arrInRawData = numpy.array(lstRawData, dtype=self.PriceData)
     print "arrInRawData : ", arrInRawData
     print "arrInRawData.shape : ", arrInRawData .shape
 
@@ -156,7 +158,7 @@ class Main:
     # TODO : create output buffer with a size (eIdx-sIdx+1) for storeing result
     if not self.dicRawData or not self.dicDatetime2Idx: return
 
-    arrOutRawData = numpy.zeros(len(self.dicRawData), dtype=self.stRawData)
+    arrOutRawData = numpy.zeros(len(self.dicRawData), dtype=self.PriceData)
     print "arrOutRawData : ", arrOutRawData
     print "arrOutRawData.shape : ", arrOutRawData .shape
 
@@ -170,13 +172,13 @@ class Main:
     return arrayOut
 
   def run(self):
-    program = self.prepare('ma.c')
+    program = self.prepare('kernel/granville_rule.c')
 
     inBuff = self.prepareInBufferForOCL(2, 5)
     outBuff = self.prepareOutBufferForOCL(2, 5)
 
     globalSize = ((len(self.dicRawData) + 15) << 4) >> 4
-    nCalculateRange = 200 # Take 5 as exampel
+    nCalculateRange = 5 # Take 5 as exampel
 
     evt = program.test_donothing(self.queue, (len(self.dicRawData),), None, \
         numpy.int32(nCalculateRange), inBuff.data, outBuff.data)
@@ -184,15 +186,6 @@ class Main:
     # TODO : Using cl.array, we don't need to use cl.enqueu_read_buffer
     print outBuff
 
-    ##?? load csv
-
-    ## create buffer for input
-
-    ## create buffer for output
-
-    ## run program
-
-    ## read data back
     return self.result
 
 if __name__ == '__main__':
@@ -211,16 +204,10 @@ if __name__ == '__main__':
   print "=" * 20
 
   time2 = time.time()
-  m.calcualteAVG(0, len(m.dicRawData), 200)  # int(args.sidx), int(args.eidx), int(args.base)
+  m.calcualteAVG(0, len(m.dicRawData), 5)  # int(args.sidx), int(args.eidx), int(args.base)
   time3 = time.time()
   print " CPU takes : %f sec."%(time3-time2)
   print "=" * 20
   result = m.run()
   print " GPU takes : %f sec."%(time.time()-time3)
   print "=" * 20
-
-  # print '=' * 40
-  # print 'MA Result:'
-  # for data in result:
-  #   print '{} - {}: {:0.4f}'.format(data['date'], data['time'], data['ma'])
-  # print '=' * 40
