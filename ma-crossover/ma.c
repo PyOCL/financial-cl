@@ -27,7 +27,7 @@ __kernel void test_donothing(const int aRange,
   float f3temp = 0.0;
   float f4temp = 0.0;
   float f5temp = 0.0;
-  for (int i = startIdx; i <= gid; i++) {
+  for (unsigned int i = startIdx; i <= gid; i++) {
     f2temp += aIn[i].f2;
     f3temp += aIn[i].f3;
     f4temp += aIn[i].f4;
