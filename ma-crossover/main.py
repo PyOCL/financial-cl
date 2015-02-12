@@ -4,6 +4,7 @@ import pyopencl.tools
 import csv
 import numpy
 import time
+from oclConfigurar import OCLConfigurar, PREFERRED_GPU
 from array import array
 
 SIGNAL_BUY          = "Signal to buy"
@@ -17,6 +18,8 @@ TREND_TYPE_DECLINE_FLATTERN  = 0
 TREND_TYPE_DECLINE_FALL      = 1
 TREND_TYPE_RISING_FLATTERN   = 2
 TREND_TYPE_RISING_ADVANCE    = 3
+
+oclConfigurar = OCLConfigurar()
 
 class GranvilleRules:
   # http://www.angelfire.com/sk/mtsp500/granville.html
@@ -66,7 +69,7 @@ class Main:
 
 
   def prepare(self, program):
-    self.context = cl.create_some_context()
+    self.context = oclConfigurar.getContext(DEVICE=PREFERRED_GPU)
     self.queue = cl.CommandQueue(self.context)
 
     # TODO : Should use the device you choose.
