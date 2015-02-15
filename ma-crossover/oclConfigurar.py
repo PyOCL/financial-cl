@@ -1,5 +1,5 @@
-#Embedded file name: /home/kilikkuo/Projects/pyopencl-example/financial-cl/ma-crossover/oclConfigurar.py
 import pyopencl as cl
+import numpy as np
 PREFERRED_GPU = 0
 PREFERRED_CPU = 1
 PREFERRED_MCU = 2
@@ -22,7 +22,7 @@ class OCLConfigurar:
         return cl.Context(devices=default_dev)
 
     def getContext(self, DEVICE = PREFERRED_GPU):
-        assert len(self.dicIdx2Platform) > 0, 'No platform'
+        assert len(self.dicIdx2Platform) > 0, 'No platform for OCL operation'
         context = None
         if DEVICE == PREFERRED_CPU:
             for lstDev in self.dicPlatform2Devices.itervalues():
@@ -51,3 +51,19 @@ class OCLConfigurar:
         if not context:
             context = self.__getDefaultDevice()
         return context
+
+    def createOCLArrayEmpty(self, queue, stDType, size):
+        assert size > 0, "Can NOT create array size <= 0"
+        # Creat a list which contains element initialized with structure stDType
+        npArrData = np.zeros(size, dtype=stDType)
+        clArrData = cl.array.to_device(queue, npArrData)
+        return clArrData
+
+    def createOCLArrayForInput(self, queue, stDType, lstData):
+        # stDType : c style structure
+        # lstData : [(a,b,),] ... (a,b,) should maps to stDtype
+        assert len(lstData) > 0, "Size of input data list = 0"
+
+        arrayData = np.array(lstData, dtype=stDType)
+        clArrayData = cl.array.to_device(queue, arrayData)
+        return clArrayData
