@@ -7,55 +7,7 @@ import time
 from oclConfigurar import OCLConfigurar, PREFERRED_GPU
 from array import array
 
-SIGNAL_BUY          = "Signal to buy"
-SIGNAL_SELL         = "Signal to sell"
-SIGNAL_BUY_OPP      = "A buying opportunity"
-SIGNAL_SELL_OPP     = "A selling opportunity"
-SIGNAL_TIME_TO_BUY  = "Buy for short-term technical rise"
-SIGNAL_TIME_TO_SELL = "Sell for short-term technical reaction"
-
-TREND_TYPE_DECLINE_FLATTERN  = 0
-TREND_TYPE_DECLINE_FALL      = 1
-TREND_TYPE_RISING_FLATTERN   = 2
-TREND_TYPE_RISING_ADVANCE    = 3
-
 oclConfigurar = OCLConfigurar()
-
-class GranvilleRules:
-    # http://www.angelfire.com/sk/mtsp500/granville.html
-    # http://www.cnyes.com/twstock/class/Chap4_02.htm
-    GRANULARITY = 20
-    def __init__(self, lstMA200, lstK):
-        # Pass in at least 5 most recent values to calculate the trend
-        # Start from the least recent, e.g. lstMA200 = [100, 101, 102, 104, 105]
-        # 105 : today, 104 : yesterday, 102 : the day before yesterday ... etc.
-        #assert(len(lstMA200) == GranvilleRules.GRANULARITY)
-        #assert(len(lstK) == GranvilleRules.GRANULARITY)
-        self.strConclusion = 'Nothing'
-
-        self.nTrendForMA200 = None
-        self.nTrendForPrice = None
-
-        self.nTrendForMA200 = self.calcTrend(lstMA200)
-        self.nTrendForPrice = self.calcTrend(lstK)
-        pass
-
-    def calcTrend(self, lstInput):
-        # TODO : is it suitable to calculate trend by slope ?
-        #        or use least square method to find a line ?
-        x = numpy.array([i for i in xrange(GranvilleRules.GRANULARITY)])
-        y = numpy.array(lstInput)
-        z = numpy.polyfit(x, y, 2)
-        p = numpy.poly1d(z)
-        t = p(GranvilleRules.GRANULARITY)
-        print "t = p(5) = %f"%(t)
-        return None
-
-    def analyze(self):
-        pass
-
-    def output(self):
-        pass
 
 class Main:
     def __init__(self, options):
@@ -71,10 +23,10 @@ class Main:
                                       ('close', numpy.float32)])
 
         # TODO : parse args and save them to specific variables
-        self.srcFile = "../data/gold-sample-data.txt"  # options.input
-        self.startDataTime = "07/16/20080140"          # options.start
-        self.endDataTime = "09/17/20120405"            # options.end
-        self.timespan = 5                              # options.timespan
+        self.srcFile = "../data/gold-sample-data.txt"   # options.input
+        self.startDataTime = "07/16/20080140"           # options.start
+        self.endDataTime = "09/17/20120405"             # options.end
+        self.timespan = 5                               # options.timespan
 
         print "Loading data ..."
         time1 = time.time()
@@ -130,6 +82,8 @@ class Main:
         # excluded value. So, we use -2 to calculate the stop index of range.
         # The perfect stop index is startIdx + self.timespan - 2. But we use startIdx - 1
         # to have the same result of Open CL
+        lst30MA = []
+        count = 0
         for index in xrange(endIdx, startIdx - 1, -1):
             dicTempResult[index] = {}
             dicTempResult[index]['O'] = 0
@@ -155,7 +109,17 @@ class Main:
             elif (4 <= endIdx - index <= 6):
                 print "..."
 
+            # To test granville trend prediction, change 400000 to
+            # other numbers to calculate the prediction from that
+            # part, e.g. 300000, 200000, 350000...
+            #if count < 30 and index < 400000:
+            #    lst30MA.append(dicTempResult[index]['O'])
+            #    count += 1
+
         print "=" * 10 + "Done" + "=" * 10
+        #from granville import GranvilleRules
+        #gr = GranvilleRules(lst30MA, lst30MA)
+        #gr.show()
 
     def __prepareInBufferForOCL(self, sIdx, eIdx):
         if not self.dicRawData or not self.dicDatetime2Idx: return
@@ -200,10 +164,6 @@ class Main:
         out = oclArrayOut.get()
         print "==========Result by OpenCL=========="
         print out
-
-        #lstTemp = [out[x][1] for x in xrange(-1, -21, -1)]
-        #print lstTemp
-        #gr = GranvilleRules(lstTemp, lstTemp)
         return self.result
 
 if __name__ == '__main__':
