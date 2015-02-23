@@ -3,12 +3,13 @@
 #include "ma.c"
 
 __kernel void test_donothing(const int aRange,
+                             const int aRealSize,
                              __global PriceData* aIn,
                              __global PriceData* aOut)
 {
   unsigned int gid = get_global_id(0);
   int startIdx = gid - aRange + 1;
-  if (startIdx < 0) {
+  if (startIdx < 0 || gid >= aRealSize) {
     // we don't need to calculate ma without enough data.
     return;
   }

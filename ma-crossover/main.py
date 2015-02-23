@@ -9,12 +9,18 @@ from array import array
 
 oclConfigurar = OCLConfigurar()
 
+TEST_GRANVILLE = 0
+TEST_EMA = 0
+
 class Main:
     def __init__(self, options):
         self.options = options
         self.result = []
         self.dicRawData = {} # { idx : row }
         self.dicDatetime2Idx = {} # { Date+Time : idx }, Date+Time is unique string
+
+        self.dicTempResultMA_CPU = {}
+        self.dicTempResultMA_GPU = {}
 
         self.PriceData = numpy.dtype([('dataIndex', numpy.int), \
                                       ('open', numpy.float32), \
@@ -77,7 +83,7 @@ class Main:
         if startIdx > endIdx or startIdx < 0 or endIdx < 0: return
 
         print "=" * 10 + "Result in Descending Order" + "=" * 10
-        dicTempResult = {}
+        self.dicTempResultMA_CPU = {}
         # The startIdx is the inlcuded value. But the second parameter of range is
         # excluded value. So, we use -2 to calculate the stop index of range.
         # The perfect stop index is startIdx + self.timespan - 2. But we use startIdx - 1
@@ -85,41 +91,31 @@ class Main:
         lst30MA = []
         count = 0
         for index in xrange(endIdx, startIdx - 1, -1):
-            dicTempResult[index] = {}
-            dicTempResult[index]['O'] = 0
-            dicTempResult[index]['H'] = 0
-            dicTempResult[index]['L'] = 0
-            dicTempResult[index]['C'] = 0
+            self.dicTempResultMA_CPU[index] = {}
+            self.dicTempResultMA_CPU[index]['O'] = 0
+            self.dicTempResultMA_CPU[index]['H'] = 0
+            self.dicTempResultMA_CPU[index]['L'] = 0
+            self.dicTempResultMA_CPU[index]['C'] = 0
             if index >= self.timespan:
                 for idx in xrange(self.timespan):
-                    dicTempResult[index]['O'] += float(self.dicRawData[index - idx].get('Open', 0.0))
-                    dicTempResult[index]['H'] += float(self.dicRawData[index - idx].get('High', 0.0))
-                    dicTempResult[index]['L'] += float(self.dicRawData[index - idx].get('Low', 0.0))
-                    dicTempResult[index]['C'] += float(self.dicRawData[index - idx].get('Close', 0.0))
+                    self.dicTempResultMA_CPU[index]['O'] += float(self.dicRawData[index - idx].get('Open', 0.0))
+                    self.dicTempResultMA_CPU[index]['H'] += float(self.dicRawData[index - idx].get('High', 0.0))
+                    self.dicTempResultMA_CPU[index]['L'] += float(self.dicRawData[index - idx].get('Low', 0.0))
+                    self.dicTempResultMA_CPU[index]['C'] += float(self.dicRawData[index - idx].get('Close', 0.0))
 
-                dicTempResult[index]['O'] /= float(self.timespan)
-                dicTempResult[index]['H'] /= float(self.timespan)
-                dicTempResult[index]['L'] /= float(self.timespan)
-                dicTempResult[index]['C'] /= float(self.timespan)
+                self.dicTempResultMA_CPU[index]['O'] /= float(self.timespan)
+                self.dicTempResultMA_CPU[index]['H'] /= float(self.timespan)
+                self.dicTempResultMA_CPU[index]['L'] /= float(self.timespan)
+                self.dicTempResultMA_CPU[index]['C'] /= float(self.timespan)
 
-            if (endIdx - index < 4 or index - startIdx < 4):
+            if (endIdx - index < 5 or index - startIdx < 5):
                 print "%d: AVG Open(%6f)/High(%6f)/Low(%6f)/Close(%6f) "\
-                %(index, dicTempResult[index]['O'], dicTempResult[index]['H'], \
-                  dicTempResult[index]['L'], dicTempResult[index]['C'])
-            elif (4 <= endIdx - index <= 6):
+                %(index, self.dicTempResultMA_CPU[index]['O'], self.dicTempResultMA_CPU[index]['H'], \
+                  self.dicTempResultMA_CPU[index]['L'], self.dicTempResultMA_CPU[index]['C'])
+            elif (10 <= endIdx - index <= 12):
                 print "..."
 
-            # To test granville trend prediction, change 400000 to
-            # other numbers to calculate the prediction from that
-            # part, e.g. 300000, 200000, 350000...
-            #if count < 30 and index < 400000:
-            #    lst30MA.append(dicTempResult[index]['O'])
-            #    count += 1
-
         print "=" * 10 + "Done" + "=" * 10
-        #from granville import GranvilleRules
-        #gr = GranvilleRules(lst30MA, lst30MA)
-        #gr.show()
 
     def __prepareInBufferForOCL(self, sIdx, eIdx):
         if not self.dicRawData or not self.dicDatetime2Idx: return
@@ -155,16 +151,71 @@ class Main:
 
         oclArrayIn = self.__prepareInBufferForOCL(startIdx, endIdx)
         oclArrayOut = self.__prepareOutBufferForOCL(startIdx, endIdx)
-        globalSize = (((endIdx - startIdx + self.timespan) + 15) << 4) >> 4
+        realSize = endIdx - startIdx + self.timespan
+        globalSize = ((realSize + 15) << 4) >> 4
 
-        evt = program.test_donothing(self.queue, (len(self.dicRawData),), None, \
-            numpy.int32(self.timespan), oclArrayIn.data, oclArrayOut.data)
+        evt = program.test_donothing(self.queue, (globalSize,), None, \
+            numpy.int32(self.timespan), numpy.int32(realSize), \
+            oclArrayIn.data, oclArrayOut.data)
 
         # TODO : Using cl.array, we don't need to use cl.enqueu_read_buffer
         out = oclArrayOut.get()
         print "==========Result by OpenCL=========="
         print out
         return self.result
+
+    def testStuff(self):
+        if TEST_GRANVILLE:
+            self.__testGranville(self.endDataTime)
+        if TEST_EMA:
+            self.__testEMA(self.endDataTime)
+
+    def __convertTypeToRawType(self, strType):
+        if strType == 'O':
+            return 'Open'
+        elif strType == 'L':
+            return 'Low'
+        elif strType == 'H':
+            return 'High'
+        else:
+            return 'Close'
+
+    def __testGranville(self, strDateTime, strType='O'):
+        # Normally, I think the strDateTime shoul be the self.endDataTime
+        # Since we're trying to calculate the latest trend. Isn't it ?
+        # type : 'O', 'C', 'H', 'L'
+        targetIdx = self.dicDatetime2Idx.get(strDateTime, -1)
+        assert not (self.timespan < 30), "Need a timespan >= 30 for Granville test."
+        assert not (targetIdx == -1), "Incorrect input datetime."
+        assert not (targetIdx not in self.dicTempResultMA_CPU), "Target datetime not in current temp result."
+
+        strTypeForRaw = self.__convertTypeToRawType(strType)
+
+        lstMA = []
+        lstPrice = []
+        for idx in xrange(targetIdx, targetIdx-self.timespan, -1):
+            lstMA.append(self.dicTempResultMA_CPU[idx][strType])
+            lstPrice.append(float(self.dicRawData[idx][strTypeForRaw]))
+        from granville import GranvilleRules
+        gr = GranvilleRules(lstMA, lstPrice)
+        gr.show()
+
+    def __testEMA(self, strDateTime, strType='O'):
+        targetIdx = self.dicDatetime2Idx.get(strDateTime, -1)
+        assert not (targetIdx == -1), "Incorrect input datetime."
+        assert not (targetIdx not in self.dicTempResultMA_CPU), "Target datetime not in current temp result."
+
+        strTypeForRaw = self.__convertTypeToRawType(strType)
+
+        lstMA = []
+        lstPrice = []
+        for idx in xrange(targetIdx, targetIdx-self.timespan, -1):
+            lstMA.append(self.dicTempResultMA_CPU[idx][strType])
+            lstPrice.append(float(self.dicRawData[idx][strTypeForRaw]))
+
+        from ema import EMA
+        ema = EMA(lstMA, lstPrice, self.timespan)
+        ema.calculate()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Calculate the MA cross over date and direction')
@@ -185,3 +236,4 @@ if __name__ == '__main__':
     result = m.run()
     print " GPU takes : %f sec."%(time.time()-time3)
     print "=" * 20
+    m.testStuff()

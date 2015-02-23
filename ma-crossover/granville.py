@@ -20,6 +20,7 @@ class GranvilleRules:
     def __init__(self, lstMA, lstPrice):
         # Basically, the larger MA timespan we set, 
         # the more accurate result we'll get.
+        # lstMA : the latest in the beginning, the oldest at the end.
         assert (len(lstMA) >= 30)
         self.lstMA = lstMA
         self.strConclusion = 'Nothing'
