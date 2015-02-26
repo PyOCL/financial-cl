@@ -24,8 +24,8 @@ def log_ema(*args):
 class EMA:
     def __init__(self, lstMA, lstPrice, aValue, timeBased=True):
         # aValue : Should be the same as timespan
-        # lstMA : the latest in the beginning, the oldest at the end.
-        # lstPrice : the latest in the beginning, the oldest at the end.
+        # lstMA : the oldest in the beginning, the latest at the end.
+        # lstPrice : the oldest in the beginning, the latest at the end.
         assert not (len(lstMA) <= 0), "No MA list"
         assert not (len(lstPrice) <= 0), "No Price list"
 
@@ -42,16 +42,22 @@ class EMA:
 
         self.lstMA = lstMA
         self.lstPrice = lstPrice
+        self.lstEMA = []
 
     def calculate(self):
-        lstEMA = []
-        addEMA = lstEMA.append
-        self.lstPrice.reverse()
+        self.lstEMA = []
+        addEMA = self.lstEMA.append
         for idx in xrange(len(self.lstPrice)):
             if idx == 0:
-                addEMA(self.lstMA[-1])
+                addEMA(self.lstMA[idx])
             else:
-                addEMA(lstEMA[idx-1] + (self.lstPrice[idx] - lstEMA[idx-1]) * self.weight)
+                addEMA(self.lstEMA[idx-1] + (self.lstPrice[idx] - self.lstEMA[idx-1]) * self.weight)
         
-        log_ema("lstEMA: ", lstEMA)
-        pass 
+        log_ema("lstEMA: ", self.lstEMA)
+        pass
+
+    def show(self):
+        import matplotlib.pyplot as plt
+        plt.plot(self.lstEMA, 'r')
+        plt.ylabel("Values")
+        plt.show()

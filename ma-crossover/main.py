@@ -193,7 +193,7 @@ class Main:
 
         lstMA = []
         lstPrice = []
-        for idx in xrange(targetIdx, targetIdx-self.timespan, -1):
+        for idx in xrange(targetIdx-self.timespan+1, targetIdx+1):
             lstMA.append(self.dicTempResultMA_CPU[idx][strType])
             lstPrice.append(float(self.dicRawData[idx][strTypeForRaw]))
         from granville import GranvilleRules
@@ -209,13 +209,14 @@ class Main:
 
         lstMA = []
         lstPrice = []
-        for idx in xrange(targetIdx, targetIdx-self.timespan, -1):
+        for idx in xrange(targetIdx-self.timespan+1, targetIdx+1):
             lstMA.append(self.dicTempResultMA_CPU[idx][strType])
             lstPrice.append(float(self.dicRawData[idx][strTypeForRaw]))
 
         from ema import EMA
         ema = EMA(lstMA, lstPrice, self.timespan)
         ema.calculate()
+        ema.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Calculate the MA cross over date and direction')
