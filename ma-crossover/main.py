@@ -155,7 +155,7 @@ class Main:
         globalSize = ((realSize + 15) << 4) >> 4
 
         evt = program.test_donothing(self.queue, (globalSize,), None, \
-            numpy.int32(self.timespan), numpy.int32(realSize), \
+            numpy.uint32(self.timespan), numpy.uint32(realSize), \
             oclArrayIn.data, oclArrayOut.data)
 
         # TODO : Using cl.array, we don't need to use cl.enqueu_read_buffer
