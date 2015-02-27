@@ -7,14 +7,13 @@ import time
 from oclConfigurar import OCLConfigurar, PREFERRED_GPU
 from array import array
 
-oclConfigurar = OCLConfigurar()
-
 TEST_GRANVILLE = 0
 TEST_EMA = 0
 
 class Main:
     def __init__(self, options):
         self.options = options
+        self.oclConfigurar = OCLConfigurar()
         self.result = []
         self.dicRawData = {} # { idx : row }
         self.dicDatetime2Idx = {} # { Date+Time : idx }, Date+Time is unique string
@@ -53,21 +52,11 @@ class Main:
         f.close()
 
     def prepare(self, program):
-        self.context = oclConfigurar.getContext(DEVICE=PREFERRED_GPU)
-        self.queue = cl.CommandQueue(self.context)
-
-        PriceData, PriceData_c_decl = cl.tools.match_dtype_to_c_struct(
-                                                            self.context.devices[0],
-                                                            "PriceData",
-                                                            self.PriceData)
-        self.PriceData = cl.tools.get_or_register_dtype("PriceData", PriceData)
-        return self.loadProgram(program)
-
-    def loadProgram(self, program):
-        f = open(program, 'r')
-        fstr = ''.join(f.readlines())
-        f.close()
-        return cl.Program(self.context, fstr).build(['-I kernel/'])
+        self.oclConfigurar.setupContextAndQueue(device=PREFERRED_GPU)
+        dicRetDS = self.oclConfigurar.setupProgramAndDataStructure(program, \
+                                                                  ['kernel/'], \
+                                                                  {'PriceData' : self.PriceData})
+        self.PriceData = dicRetDS.get('PriceData', None)
 
     def calcualteAVG(self):
         # startIdx, endIdx, self.timespan
@@ -126,7 +115,7 @@ class Main:
         for k, v in self.dicRawData.iteritems():
             if (sIdx - self.timespan + 1) <= k <= eIdx:
               addData((k, float(v['Open']), float(v['High']), float(v['Low']), float(v['Close'])))
-        clArrayIn = oclConfigurar.createOCLArrayForInput(self.queue, self.PriceData, lstRawData)
+        clArrayIn = self.oclConfigurar.createOCLArrayForInput(self.PriceData, lstRawData)
 
         print "Lenght of Input : %d"%(len(lstRawData))
         print "Input : ",clArrayIn
@@ -137,7 +126,7 @@ class Main:
         print "-" * 10
 
         sizeOut = eIdx - sIdx + self.timespan
-        clArrayOut = oclConfigurar.createOCLArrayEmpty(self.queue, self.PriceData, sizeOut)
+        clArrayOut = self.oclConfigurar.createOCLArrayEmpty(self.PriceData, sizeOut)
         print "Lenght of Output : %d"%(sizeOut)
         print "Output : ",clArrayOut
         return clArrayOut
@@ -147,16 +136,16 @@ class Main:
         endIdx = self.dicDatetime2Idx.get(self.endDataTime, -1)
         assert not (startIdx > endIdx or startIdx < 0 or endIdx < 0), "StartTime or EndTime incorrect !!"
 
-        program = self.prepare('kernel/granville_rule.c')
+        self.prepare('kernel/granville_rule.c')
 
         oclArrayIn = self.__prepareInBufferForOCL(startIdx, endIdx)
         oclArrayOut = self.__prepareOutBufferForOCL(startIdx, endIdx)
         realSize = endIdx - startIdx + self.timespan
         globalSize = ((realSize + 15) << 4) >> 4
 
-        evt = program.test_donothing(self.queue, (globalSize,), None, \
-            numpy.int32(self.timespan), numpy.int32(realSize), \
-            oclArrayIn.data, oclArrayOut.data)
+        self.oclConfigurar.callFuncFromProgram('test_donothing', (globalSize,), None, \
+                                               numpy.int32(self.timespan), numpy.int32(realSize), \
+                                               oclArrayIn.data, oclArrayOut.data)
 
         # TODO : Using cl.array, we don't need to use cl.enqueu_read_buffer
         out = oclArrayOut.get()
