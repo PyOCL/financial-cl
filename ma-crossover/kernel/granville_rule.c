@@ -2,8 +2,8 @@
 // TODO: find a way to include .h and compile with .c file.
 #include "ma.c"
 
-__kernel void test_donothing(const int aRange,
-                             const int aRealSize,
+__kernel void test_donothing(const unsigned int aRange,
+                             const unsigned int aRealSize,
                              __global PriceData* aIn,
                              __global PriceData* aOut)
 {
