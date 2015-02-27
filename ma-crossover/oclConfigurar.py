@@ -9,6 +9,10 @@ class OCLConfigurar:
     def __init__(self):
         self.dicIdx2Platform = {}
         self.dicPlatform2Devices = {}
+
+        self.context = None
+        self.queue = None
+        self.program = None
         self.__parseInfo()
 
     def __parseInfo(self):
@@ -21,17 +25,55 @@ class OCLConfigurar:
         default_dev = platform.get_devices(device_type=cl.device_type.DEFAULT)
         return cl.Context(devices=default_dev)
 
-    def getContext(self, DEVICE = PREFERRED_GPU):
+    def setupContextAndQueue(self, device=PREFERRED_GPU):
+        self.context = self.getContext(device)
+        self.queue = cl.CommandQueue(self.context)
+        print "self.queue", self.queue
+
+    def setupProgramAndDataStructure(self, program, lstIPath=[], dicName2DS={}):
+        # program : Path to the kernel file
+        # lstIPath : Path to be included while building program, e.g. ['testA/', '../testB/']
+        # dicName2DS : name to data structure wrapped by numpy,
+        #              e.g. {'SampleStruct' : numpy.dtype([('dataIndex', numpy.int),
+        #                                                  ('open', numpy.float32)]}
+        assert (self.context != None), "Setup context seems incorrectly !!"
+        assert (len(self.context.devices) > 0), "Error, No device for context !!"
+        device = self.context.devices[0]
+        dicReturnStruct = {}
+        for k, v in dicName2DS.iteritems():
+            kObj, k_c_decl = cl.tools.match_dtype_to_c_struct(device, k, v)
+            retV = cl.tools.get_or_register_dtype(k, kObj)
+
+            dicReturnStruct[k] = retV
+
+        f = open(program, 'r')
+        fstr = ''.join(f.readlines())
+        f.close()
+
+        strInc = '-I '
+        modifiedlstPath = []
+        for path in lstIPath:
+            modifiedlstPath.append(strInc+path)
+        self.program = cl.Program(self.context, fstr).build(modifiedlstPath)
+        return dicReturnStruct
+
+    def callFuncFromProgram(self, strMethodName, *args, **argd):
+        methodCall = getattr(self.program, strMethodName)
+        if methodCall:
+            evt = methodCall(self.queue, *args)
+            return evt
+
+    def getContext(self, device=PREFERRED_GPU):
         assert len(self.dicIdx2Platform) > 0, 'No platform for OCL operation'
         context = None
-        if DEVICE == PREFERRED_CPU:
+        if device == PREFERRED_CPU:
             for lstDev in self.dicPlatform2Devices.itervalues():
                 for dev in lstDev:
                     if 'CPU' in cl.device_type.to_string(dev.type):
                         context = cl.Context(devices=[dev])
                         break
 
-        elif DEVICE == PREFERRED_MCU:
+        elif device == PREFERRED_MCU:
             mcu_dev = None
             mcu = 0
             for lstDev in self.dicPlatform2Devices.itervalues():
@@ -52,18 +94,22 @@ class OCLConfigurar:
             context = self.__getDefaultDevice()
         return context
 
-    def createOCLArrayEmpty(self, queue, stDType, size):
+    def createOCLArrayEmpty(self, stDType, size):
+        # stDType : c style structure
+        # size : the size of the array
         assert size > 0, "Can NOT create array size <= 0"
+        assert (self.queue != None), " Make sure setup correctly"
         # Creat a list which contains element initialized with structure stDType
         npArrData = np.zeros(size, dtype=stDType)
-        clArrData = cl.array.to_device(queue, npArrData)
+        clArrData = cl.array.to_device(self.queue, npArrData)
         return clArrData
 
-    def createOCLArrayForInput(self, queue, stDType, lstData):
+    def createOCLArrayForInput(self, stDType, lstData):
         # stDType : c style structure
         # lstData : [(a,b,),] ... (a,b,) should maps to stDtype
         assert len(lstData) > 0, "Size of input data list = 0"
+        assert (self.queue != None), " Make sure setup correctly"
 
         arrayData = np.array(lstData, dtype=stDType)
-        clArrayData = cl.array.to_device(queue, arrayData)
+        clArrayData = cl.array.to_device(self.queue, arrayData)
         return clArrayData
